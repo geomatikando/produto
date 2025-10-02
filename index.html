@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Produto — versão móvel (ficheiro único)</title>
+<style>
+  :root{--bg:#f7f7f7;--panel:#fafafa;--line:#333;--board:#e6e6e6}
+  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;color:#222}
+  .wrap{display:grid;grid-template-columns:1fr 280px;height:100%}
+  .stage{display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #board{width:100%;height:100%;display:block;background:var(--bg);touch-action:none}
+  aside{background:var(--panel);border-left:1px solid #ddd;display:flex;flex-direction:column;align-items:center;padding:16px}
+  h1{margin:6px 0 10px;font-size:22px;letter-spacing:.4px}
+  .info{width:100%;font-size:14px;margin:10px 0 12px}
+  .btn{width:100%;padding:12px 14px;margin:8px 0;border:1px solid #aaa;border-radius:12px;background:#eee;cursor:pointer;font-weight:600}
+  .btn:hover{filter:brightness(0.97)}
+  .pill{padding:3px 8px;border-radius:999px;border:1px solid #bbb;background:#fff;font-size:12px}
+  .muted{color:#666}
+  .row{display:flex;gap:8px;align-items:center;margin:4px 0}
+  footer{margin-top:auto;width:100%;display:flex;justify-content:center}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:24px}
+  .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);padding:20px;min-width:280px;max-width:420px;width:100%}
+  .card h2{margin:0 0 12px}
+  .center{display:flex;gap:10px;justify-content:center}
+
+  /* ——— Mobile: painel em baixo ——— */
+  @media (max-width: 900px){
+    .wrap{grid-template-columns:1fr}
+    aside{position:fixed;left:0;right:0;bottom:0;height:220px;border-left:none;border-top:1px solid #ddd}
+    .stage{height:calc(100vh - 220px)}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="stage"><canvas id="board"></canvas></div>
+    <aside id="side">
+      <h1>PRODUTO</h1>
+      <div class="info">
+        <div class="row"><strong>Vez:</strong>&nbsp;<span id="turnLbl">—</span></div>
+        <div class="row"><strong>Coloca:</strong>&nbsp;<span id="needLbl">—</span>&nbsp;<span class="muted">peça(s)</span></div>
+        <div class="row"><strong>Cor selecionada:</strong> <span id="selLbl" class="pill">Preta</span></div>
+      </div>
+      <button class="btn" id="btnBlack">Peça PRETA</button>
+      <button class="btn" id="btnWhite">Peça BRANCA</button>
+      <button class="btn" id="btnUndo">Undo</button>
+      <button class="btn" id="btnReset">Reiniciar</button>
+      <div class="info" id="scoreBox" style="margin-top:12px"></div>
+      <footer><button class="btn" id="btnQuit" title="Fecha o separador">Terminar</button></footer>
+    </aside>
+  </div>
+
+  <div class="modal" id="startModal">
+    <div class="card">
+      <h2>Escolhe o teu lado</h2>
+      <div class="center">
+        <button class="btn" id="startBlack">Jogar Pretas</button>
+        <button class="btn" id="startWhite">Jogar Brancas</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(()=>{
+// ===== Constantes =====
+const SIZE=5, HEX_R=26, PRETO=1, BRANCO=2, VAZIO=0;
+const COLOR_NAME={1:'Pretas',2:'Brancas'};
+const PIECE_FILL={1:'#222',2:'#f4f4f4'};
+const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ===== Coordenadas do tabuleiro (axial pointy-top) =====
+function axialHexCoords(size){const r=size-1,out=[];for(let q=-r;q<=r;q++){const r1=Math.max(-r,-q-r),r2=Math.min(r,-q+r);for(let s=r1;s<=r2;s++)out.push([q,s])}return out}
+const COORDS=axialHexCoords(SIZE), N=COORDS.length;
+const INDEX=new Map(COORDS.map((c,i)=>[c.join(','),i]));
+const NEIGH_DELTAS=[[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],arr=[];for(const[dq,dr]of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].join(',')); if(j!==undefined) arr.push(j)}return arr});
+
+const canvas=document.getElementById('board'), ctx=canvas.getContext('2d');
+let originX=0, originY=0;
+
+// usa o contentor .stage (robusto em mobile)
+function fitCanvas(){
+  const stage=canvas.parentElement;
+  const w=stage.clientWidth, h=stage.clientHeight;
+  const dpr=Math.max(1, window.devicePixelRatio||1);
+  canvas.width=Math.floor(w*dpr); canvas.height=Math.floor(h*dpr);
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  const centers0=COORDS.map(([q,r])=>[HEX_R*(Math.sqrt(3)*(q+r/2)), HEX_R*(1.5*r)]);
+  const xs=centers0.map(p=>p[0]), ys=centers0.map(p=>p[1]);
+  const minx=Math.min(...xs)-HEX_R, maxx=Math.max(...xs)+HEX_R;
+  const miny=Math.min(...ys)-HEX_R, maxy=Math.max(...ys)+HEX_R;
+  originX = (w-(maxx-minx))/2 - minx;
+  originY = (h-(maxy-miny))/2 - miny;
+  originY = Math.max(originY, HEX_R+28);
+}
+window.addEventListener('resize', ()=>{fitCanvas(); draw();});
+
+function axialToPixel(q,r){ return [HEX_R*(Math.sqrt(3)*(q+r/2))+originX, HEX_R*(1.5*r)+originY]; }
+function hexPolygon(cx,cy){const pts=[]; for(let k=0;k<6;k++){const ang=(Math.PI/180)*(60*k+30); pts.push([cx+HEX_R*Math.cos(ang), cy+HEX_R*Math.sin(ang)])} return pts;}
+function pointInPoly(x,y,poly){let inside=false; for(let i=0;i<poly.length;i++){const[x1,y1]=poly[i],[x2,y2]=poly[(i+1)%poly.length]; const hit=(y1>y)!==(y2>y) && x < (x2-x1)*(y-y1)/(y2-y1+1e-9)+x1; if(hit) inside=!inside;} return inside;}
+
+// ===== Estado =====
+let centers=[], polys=[], board=Array(N).fill(VAZIO), turn=PRETO, firstBlackDone=false, humanColor=null, selectedColor=PRETO, pending=[], gameOver=false;
+
+// ===== Pontuação =====
+function groupSizes(color){const seen=new Set(),sizes=[];for(let i=0;i<N;i++) if(board[i]===color && !seen.has(i)){let c=0;const st=[i];seen.add(i);while(st.length){const u=st.pop();c++;for(const v of NEIGH[u]) if(board[v]===color && !seen.has(v)){seen.add(v);st.push(v)}}sizes.push(c)}sizes.sort((a,b)=>b-a);return sizes}
+const prodTwo = a => a.length>=2 ? a[0]*a[1] : 0;
+function evaluate(){const sb=groupSizes(PRETO), sw=groupSizes(BRANCO); return {prod_black:prodTwo(sb), prod_white:prodTwo(sw), black_pieces:board.filter(v=>v===PRETO).length, white_pieces:board.filter(v=>v===BRANCO).length, diffFor(me){return me===PRETO? this.prod_black-this.prod_white : this.prod_white-this.prod_black}}}
+
+// ===== IA (com pares mistos) =====
+const empties = ()=> board.map((v,i)=>v===VAZIO?i:-1).filter(i=>i!==-1);
+function tryPlace(pl){const b=board.slice(), used=new Set();for(const[i,c] of pl){if(used.has(i)||b[i]!==VAZIO) return null; used.add(i); b[i]=c;} return b;}
+function evaluateBoard(b){const save=board; board=b; const sc=evaluate(); board=save; return sc;}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]}}
+function gt(a,b){for(let i=0;i<Math.max(a.length,b.length);i++){const x=a[i]??0,y=b[i]??0; if(x>y) return true; if(x<y) return false;} return false;}
+function candidateCells(){const e=empties(); if(e.length<=14) return e; const frontier=new Set(); for(let i=0;i<N;i++) if(board[i]!==VAZIO) for(const j of NEIGH[i]) if(board[j]===VAZIO) frontier.add(j); if(frontier.size){const arr=[...frontier].sort((a,b)=>a-b); if(arr.length<14){const rest=e.filter(x=>!frontier.has(x)); shuffle(rest); arr.push(...rest.slice(0,14-arr.length)); } return arr;} let center=0,best=1e9; for(let i=0;i<N;i++){const[q,r]=COORDS[i],dist=Math.abs(q)+Math.abs(r)+Math.abs(-q-r); if(dist<best){best=dist; center=i;}} const pool=new Set([center, ...NEIGH[center]]); const rest=e.filter(x=>!pool.has(x)); shuffle(rest); while(pool.size<14 && rest.length) pool.add(rest.pop()); return [...pool].sort((a,b)=>a-b);}
+function aiMove(me){
+  const base=evaluate(), opp=(me===PRETO?BRANCO:PRETO), baseOpp=(opp===PRETO?base.prod_black:base.prod_white);
+  const e=empties(), moveSize=(me===PRETO && !firstBlackDone)?1:2, cands=candidateCells();
+  if(moveSize===1){
+    let best=null;
+    for(const i of cands) for(const col of [PRETO,BRANCO]){
+      const nb=tryPlace([[i,col]]); if(!nb) continue; const sc=evaluateBoard(nb);
+      const myPieces=(me===PRETO?sc.black_pieces:sc.white_pieces), oppProd=(opp===PRETO?sc.prod_black:sc.prod_white);
+      const key=[sc.diffFor(me),(baseOpp-oppProd),-myPieces];
+      if(!best||gt(key,best.key)) best={key, mv:[[i,col]]};
+    }
+    return best?best.mv:[[e[0],me]];
+  }
+  let singles=[]; for(const i of cands) for(const col of [PRETO,BRANCO]){const nb=tryPlace([[i,col]]); if(!nb) continue; const sc=evaluateBoard(nb); singles.push({key:[sc.diffFor(me)], pick:[i,col]});}
+  singles.sort((a,b)=>gt(b.key,a.key)?1:-1); singles=singles.slice(0,12);
+  let pool=singles.map(s=>s.pick);
+  while(pool.length<18 && e.length){const i=e[(Math.random()*e.length)|0]; const c=(Math.random()<.5?PRETO:BRANCO); pool.push([i,c]);}
+  for(let k=0;k<8 && e.length>1;k++){let i1=e[(Math.random()*e.length)|0], i2=e[(Math.random()*e.length)|0]; if(i1===i2) continue; const c1=(Math.random()<.5?PRETO:BRANCO), c2=(c1===PRETO?BRANCO:PRETO); pool.push([i1,c1],[i2,c2]);}
+  let best=null; const tried=new Set();
+  for(let a=0;a<pool.length;a++) for(let b=a+1;b<pool.length;b++){
+    const [i1,c1]=pool[a],[i2,c2]=pool[b]; if(i1===i2) continue;
+    const id=JSON.stringify([[i1,c1],[i2,c2]].sort()); if(tried.has(id)) continue; tried.add(id);
+    const nb=tryPlace([[i1,c1],[i2,c2]]); if(!nb) continue; const sc=evaluateBoard(nb);
+    const myPieces=(me===PRETO?sc.black_pieces:sc.white_pieces), oppProd=(opp===PRETO?sc.prod_black:sc.prod_white);
+    const key=[sc.diffFor(me)+Math.random()*0.01,(baseOpp-oppProd),-myPieces];
+    if(!best||gt(key,best.key)) best={key, mv:[[i1,c1],[i2,c2]]};
+  }
+  return best?best.mv:(e.length>1?[[e[0],me],[e[1],me]]:[[e[0],me]]);
+}
+
+// ===== UI =====
+const turnLbl=document.getElementById('turnLbl'), needLbl=document.getElementById('needLbl'), selLbl=document.getElementById('selLbl'), scoreBox=document.getElementById('scoreBox');
+document.getElementById('btnBlack').onclick=()=>{selectedColor=PRETO; selLbl.textContent='Preta';};
+document.getElementById('btnWhite').onclick=()=>{selectedColor=BRANCO; selLbl.textContent='Branca';};
+document.getElementById('btnUndo').onclick=()=>{ if(pending.length){ const [i]=pending.pop(); board[i]=VAZIO; draw(); updateHUD(); } };
+document.getElementById('btnReset').onclick=resetGame;
+document.getElementById('btnQuit').onclick=()=>window.close();
+
+function hasEmpty(){ return board.some(v=>v===VAZIO); }
+function updateHUD(){
+  const need=(turn===PRETO && !firstBlackDone)?1:2;
+  turnLbl.textContent=COLOR_NAME[turn];
+  needLbl.textContent=need;
+  const sc=evaluate();
+  scoreBox.innerHTML=`<div><strong>Produto Pretas:</strong> ${sc.prod_black}</div>
+    <div><strong>Produto Brancas:</strong> ${sc.prod_white}</div>
+    <div class="muted">Peças P:${sc.black_pieces}  W:${sc.white_pieces}</div>`;
+}
+
+// clique + toque
+function handlePointer(clientX, clientY){
+  if(humanColor==null || turn!==humanColor) return;
+  const rect=canvas.getBoundingClientRect(); const x=clientX-rect.left, y=clientY-rect.top;
+  for(let i=0;i<N;i++){
+    if(board[i]!==VAZIO) continue;
+    const [cx,cy]=axialToPixel(...COORDS[i]); const poly=hexPolygon(cx,cy);
+    if(pointInPoly(x,y,poly)){
+      board[i]=selectedColor; pending.push([i,selectedColor]); draw(); updateHUD();
+      const need=(turn===PRETO && !firstBlackDone)?1:2;
+      if(pending.length>=need){
+        pending.length=0;
+        if(turn===PRETO && !firstBlackDone) firstBlackDone=true;
+        turn=(turn===PRETO)?BRANCO:PRETO;
+        setTimeout(aiStep,220);
+      }
+      break;
+    }
+  }
+}
+canvas.addEventListener('click', e=>handlePointer(e.clientX,e.clientY));
+canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; handlePointer(t.clientX,t.clientY); e.preventDefault();},{passive:false});
+
+function aiStep(){
+  if(humanColor==null || !hasEmpty()) return;
+  if(turn===humanColor) return;
+  const mv=aiMove(turn); for(const [i,c] of mv) board[i]=c;
+  if(turn===PRETO && !firstBlackDone) firstBlackDone=true;
+  turn=(turn===PRETO)?BRANCO:PRETO;
+  draw(); updateHUD(); if(!hasEmpty()) endGame();
+}
+
+function endGame(){
+  const sc=evaluate();
+  let winner=null;
+  if(sc.prod_black!==sc.prod_white) winner=sc.prod_black>sc.prod_white?PRETO:BRANCO;
+  else if(sc.black_pieces!==sc.white_pieces) winner=sc.black_pieces<sc.white_pieces?PRETO:BRANCO;
+  const msg = winner? `Vence: ${COLOR_NAME[winner]}` : 'Empate absoluto!';
+  alert(`Produto Pretas: ${sc.prod_black}\nProduto Brancas: ${sc.prod_white}\nPeças P:${sc.black_pieces}  W:${sc.white_pieces}\n\n${msg}`);
+}
+
+function resetGame(){
+  board.fill(VAZIO); turn=PRETO; firstBlackDone=false; pending.length=0; selectedColor=PRETO; selLbl.textContent='Preta';
+  draw(); updateHUD();
+  document.getElementById('startModal').style.display='flex'; humanColor=null; gameOver=false;
+}
+
+// desenho principal
+function draw(){
+  fitCanvas();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle=getCSS('--bg'); ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  centers = COORDS.map(([q,r])=>axialToPixel(q,r));
+  ctx.lineWidth=2; ctx.strokeStyle=getCSS('--line');
+  for(let i=0;i<N;i++){
+    const [cx,cy]=centers[i], poly=hexPolygon(cx,cy);
+    ctx.beginPath(); ctx.moveTo(poly[0][0],poly[0][1]); for(let k=1;k<6;k++) ctx.lineTo(poly[k][0],poly[k][1]); ctx.closePath();
+    ctx.fillStyle=getCSS('--board'); ctx.fill(); ctx.stroke();
+    const v=board[i];
+    if(v!==VAZIO){ ctx.beginPath(); ctx.arc(cx,cy,HEX_R*0.6,0,Math.PI*2); ctx.fillStyle=PIECE_FILL[v]; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#000'; ctx.stroke(); }
+  }
+}
+
+// modal inicial
+document.getElementById('startBlack').onclick=()=>{humanColor=PRETO; document.getElementById('startModal').style.display='none'; updateHUD(); draw();};
+document.getElementById('startWhite').onclick=()=>{humanColor=BRANCO; document.getElementById('startModal').style.display='none'; updateHUD(); draw(); setTimeout(aiStep,300);};
+
+// boot
+document.getElementById('startModal').style.display='flex';
+draw();
+})();
+</script>
+</body>
+</html>
