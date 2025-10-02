@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#f7f7f7; --panel:#fafafa; --line:#333; --board:#e6e6e6;
-    /* altura do painel: mínimo 150px, preferido 26vh, máximo 200px */
+    /* altura do painel (mobile): mínimo 150px, preferido 26vh, máximo 200px */
     --panel-h:clamp(150px,26vh,200px);
   }
   html,body{height:100%;margin:0;background:var(--bg);
@@ -18,13 +18,31 @@
   aside{background:var(--panel);border-left:1px solid #ddd;
     display:flex;flex-direction:column;align-items:center;padding:16px}
   h1{margin:6px 0 10px;font-size:22px;letter-spacing:.4px}
-  .info{width:100%;font-size:14px;margin:10px 0 12px}
+
+  /* Informações em GRID: 2 colunas (label | valor+botões à direita) */
+  .info-grid{
+    width:100%;
+    display:grid;
+    grid-template-columns:auto 1fr;
+    column-gap:10px;
+    row-gap:8px;
+    align-items:center;
+    font-size:14px;
+    margin:10px 0 12px;
+  }
+  .label{font-weight:700}
+  .value{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
   .btn{width:100%;padding:12px 14px;margin:8px 0;border:1px solid #aaa;
     border-radius:12px;background:#eee;cursor:pointer;font-weight:600}
   .btn:hover{filter:brightness(0.97)}
+  .chip{
+    padding:6px 10px;border-radius:999px;border:1px solid #aaa;background:#eee;
+    font-weight:600;cursor:pointer;font-size:13px;line-height:1;white-space:nowrap
+  }
+  .chip:active{transform:translateY(1px)}
   .pill{padding:3px 8px;border-radius:999px;border:1px solid #bbb;background:#fff;font-size:12px}
   .muted{color:#666}
-  .row{display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap}
   footer{margin-top:auto;width:100%;display:flex;justify-content:center}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);
     display:none;align-items:center;justify-content:center;padding:24px}
@@ -32,16 +50,6 @@
     padding:20px;min-width:280px;max-width:420px;width:100%}
   .card h2{margin:0 0 12px}
   .center{display:flex;gap:10px;justify-content:center}
-
-  /* Botões pequenos para lado do texto */
-  .btn.small{
-    padding:4px 8px;
-    margin:0 4px;
-    font-size:13px;
-    width:auto;
-    border-radius:8px;
-  }
-  .row button{flex-shrink:0}
 
   /* Mobile: painel em baixo e canvas ocupa a área visível restante */
   @media (max-width:900px){
@@ -57,7 +65,7 @@
       height:calc(var(--vh, 100svh) - var(--panel-h) - env(safe-area-inset-bottom,0px));
     }
     h1{font-size:20px;margin:4px 0 6px}
-    .info{font-size:13px;margin:6px 0 8px}
+    .info-grid{font-size:13px;margin:6px 0 8px}
     .btn{padding:10px 12px;font-size:15px}
   }
 </style>
@@ -67,18 +75,29 @@
   <div class="stage"><canvas id="board"></canvas></div>
   <aside id="side">
     <h1>PRODUTO</h1>
-    <div class="info">
-      <div class="row">
-        <strong>Vez:</strong>&nbsp;<span id="turnLbl">—</span>
-        <button class="btn small" id="btnBlack">⚫ Preta</button>
-        <button class="btn small" id="btnWhite">⚪ Branca</button>
+
+    <!-- PAINEL EM GRID -->
+    <div class="info-grid">
+      <div class="label">Vez:</div>
+      <div class="value">
+        <span id="turnLbl">—</span>
+        <button class="chip" id="chipBlack">⚫ Preta</button>
+        <button class="chip" id="chipWhite">⚪ Branca</button>
       </div>
-      <div class="row"><strong>Coloca:</strong>&nbsp;<span id="needLbl">—</span>&nbsp;<span class="muted">peça(s)</span></div>
-      <div class="row"><strong>Cor selecionada:</strong> <span id="selLbl" class="pill">Preta</span></div>
+
+      <div class="label">Coloca:</div>
+      <div class="value">
+        <span id="needLbl">—</span> <span class="muted">peça(s)</span>
+      </div>
+
+      <div class="label">Cor selecionada:</div>
+      <div class="value"><span id="selLbl" class="pill">Preta</span></div>
     </div>
+
     <button class="btn" id="btnUndo">Undo</button>
     <button class="btn" id="btnReset">Reiniciar</button>
-    <div class="info" id="scoreBox" style="margin-top:12px"></div>
+    <div class="info-grid" id="scoreBox"
+         style="grid-template-columns:auto 1fr"></div>
     <footer><button class="btn" id="btnQuit" title="Fecha o separador">Terminar</button></footer>
   </aside>
 </div>
@@ -96,13 +115,13 @@
 
 <script>
 (()=>{
-// ===== Fix de altura real do viewport (iOS/Android barras dinâmicas)
+// ===== Fix altura viewport em iOS/Android
 function setVH(){ document.documentElement.style.setProperty('--vh', window.innerHeight + 'px'); }
 setVH(); window.addEventListener('resize', setVH);
 
 // ===== Config e utilidades
-const SIZE=5;                // lado do hexágono (5 → 61 células)
-let HEX_R=26;                // raio atual (será recalculado para caber)
+const SIZE=5; // lado do hexágono
+let HEX_R=26; // será recalculado para caber
 const PRETO=1, BRANCO=2, VAZIO=0;
 const COLOR_NAME={1:'Pretas',2:'Brancas'};
 const PIECE_RGB={1:'#222',2:'#f4f4f4'};
@@ -113,68 +132,63 @@ function axialHexCoords(size){const r=size-1,out=[];for(let q=-r;q<=r;q++){const
 const COORDS=axialHexCoords(SIZE), N=COORDS.length;
 const INDEX=new Map(COORDS.map((c,i)=>[c.toString(),i]));
 const NEIGH_DELTAS=[[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
-const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],a=[];for(const[dq,dr] of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].toString()); if(j!==undefined) a.push(j);} return a;});
+const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],a=[];for(const[dq,dr] of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].toString()); if(j!==undefined) a.push(j)}return a});
 
-// Com R qualquer
-function axialToPixel(q,r){ return [HEX_R*(Math.sqrt(3)*(q + r/2)), HEX_R*(1.5*r)] }
-function hexPolygon(cx,cy){ const pts=[]; for(let k=0;k<6;k++){const ang=(Math.PI/180)*(60*k+30); pts.push([cx+HEX_R*Math.cos(ang), cy+HEX_R*Math.sin(ang)])} return pts; }
+function axialToPixel(q,r){ return [HEX_R*(Math.sqrt(3)*(q+r/2)), HEX_R*(1.5*r)] }
+function hexPolygon(cx,cy){const pts=[];for(let k=0;k<6;k++){const ang=(Math.PI/180)*(60*k+30);pts.push([cx+HEX_R*Math.cos(ang), cy+HEX_R*Math.sin(ang)])}return pts}
+function pointInPoly(x,y,poly){let inside=false; for(let i=0;i<poly.length;i++){const[x1,y1]=poly[i],[x2,y2]=poly[(i+1)%poly.length]; const hit=(y1>y)!==(y2>y) && x < (x2-x1)*(y-y1)/(y2-y1+1e-9)+x1; if(hit) inside=!inside;} return inside;}
 
-// ===== Canvas e ajuste responsivo
+// ===== Canvas + ajuste responsivo
 const canvas=document.getElementById('board'), ctx=canvas.getContext('2d');
-
+let originX=0, originY=0;
 function fitCanvasAndRadius(){
-  // tamanho do contentor real
   const stage=canvas.parentElement;
-  const availW=stage.clientWidth, availH=stage.clientHeight;
+  const w=stage.clientWidth, h=stage.clientHeight;
   const dpr=Math.max(1, window.devicePixelRatio||1);
-  canvas.width=Math.floor(availW*dpr); canvas.height=Math.floor(availH*dpr);
-  canvas.style.width=availW+'px'; canvas.style.height=availH+'px';
+  canvas.width=Math.floor(w*dpr); canvas.height=Math.floor(h*dpr);
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
-  // Extents do tabuleiro com R=1 (unidades)
-  const centers1 = COORDS.map(([q,r])=>[Math.sqrt(3)*(q + r/2), 1.5*r]);
-  const xs = centers1.map(p=>p[0]), ys = centers1.map(p=>p[1]);
-  const minx=Math.min(...xs)-1, maxx=Math.max(...xs)+1; // margem de 1 raio
+  // Extents em unidades (R=1)
+  const centers1=COORDS.map(([q,r])=>[Math.sqrt(3)*(q+r/2), 1.5*r]);
+  const xs=centers1.map(p=>p[0]), ys=centers1.map(p=>p[1]);
+  const minx=Math.min(...xs)-1, maxx=Math.max(...xs)+1;
   const miny=Math.min(...ys)-1, maxy=Math.max(...ys)+1;
-  const widthUnits  = maxx - minx;
-  const heightUnits = maxy - miny;
+  const widthU=maxx-minx, heightU=maxy-miny;
 
-  const PAD = 12; // margem em px
-  // R que cabe (multiplica as unidades por R)
-  const Rx = (availW - 2*PAD) / widthUnits;
-  const Ry = (availH - 2*PAD) / heightUnits;
-  HEX_R = Math.max(6, Math.floor(Math.min(Rx, Ry))); // mínimo para não ficar minúsculo
-  // origem para centrar
-  const boardW = widthUnits  * HEX_R;
-  const boardH = heightUnits * HEX_R;
-  originX = (availW - boardW)/2 - minx*HEX_R;
-  originY = (availH - boardH)/2 - miny*HEX_R;
+  const PAD=12; // margem em px
+  const Rx=(w-2*PAD)/widthU, Ry=(h-2*PAD)/heightU;
+  HEX_R=Math.max(6, Math.floor(Math.min(Rx,Ry)));
+
+  const boardW=widthU*HEX_R, boardH=heightU*HEX_R;
+  originX=(w-boardW)/2 - minx*HEX_R;
+  originY=(h-boardH)/2 - miny*HEX_R;
 }
-let originX=0, originY=0;
 window.addEventListener('resize', ()=>{fitCanvasAndRadius(); draw();});
 
 // ===== Estado do jogo
 let board=Array(N).fill(VAZIO), turn=PRETO, firstBlackDone=false, humanColor=null, selectedColor=PRETO, pending=[];
 
+// ===== HUD
 const turnLbl=document.getElementById('turnLbl');
 const needLbl=document.getElementById('needLbl');
 const selLbl =document.getElementById('selLbl');
 const scoreBox=document.getElementById('scoreBox');
 
-document.getElementById('btnBlack').onclick=()=>{selectedColor=PRETO; selLbl.textContent='Preta';};
-document.getElementById('btnWhite').onclick=()=>{selectedColor=BRANCO; selLbl.textContent='Branca';};
+document.getElementById('chipBlack').onclick=()=>{selectedColor=PRETO; selLbl.textContent='Preta';};
+document.getElementById('chipWhite').onclick=()=>{selectedColor=BRANCO; selLbl.textContent='Branca';};
 document.getElementById('btnUndo').onclick=()=>{if(pending.length){const[i]=pending.pop(); board[i]=VAZIO; draw(); updateHUD();}};
 document.getElementById('btnReset').onclick=resetGame;
 document.getElementById('btnQuit').onclick=()=>window.close();
 
 // ===== Pontuação
 function groupSizes(color){const seen=new Set(),sizes=[];for(let i=0;i<N;i++) if(board[i]===color && !seen.has(i)){let c=0;const st=[i];seen.add(i);while(st.length){const u=st.pop();c++;for(const v of NEIGH[u]) if(board[v]===color && !seen.has(v)){seen.add(v);st.push(v)}}sizes.push(c)}sizes.sort((a,b)=>b-a);return sizes}
-function prod2(a){return a.length>=2?a[0]*a[1]:0}
+const prod2=a=>a.length>=2?a[0]*a[1]:0;
 function evaluate(){const sb=groupSizes(PRETO), sw=groupSizes(BRANCO); return {prod_black:prod2(sb), prod_white:prod2(sw), black_pieces:board.filter(v=>v===PRETO).length, white_pieces:board.filter(v=>v===BRANCO).length, diffFor(me){return me===PRETO? this.prod_black-this.prod_white : this.prod_white-this.prod_black}}}
 
 // ===== IA (com pares mistos)
 const empties=()=>board.map((v,i)=>v===VAZIO?i:-1).filter(i=>i!==-1);
-function tryPlace(pl){const b=board.slice(), used=new Set(); for(const[i,c] of pl){if(used.has(i)||b[i]!==VAZIO) return null; used.add(i); b[i]=c;} return b;}
+function tryPlace(pl){const b=board.slice(), used=new Set();for(const[i,c] of pl){if(used.has(i)||b[i]!==VAZIO) return null; used.add(i); b[i]=c;} return b;}
 function evaluateBoard(b){const save=board; board=b; const sc=evaluate(); board=save; return sc;}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]}}
 function gt(a,b){for(let i=0;i<Math.max(a.length,b.length);i++){const x=a[i]??0,y=b[i]??0;if(x>y)return true;if(x<y)return false}return false}
@@ -213,18 +227,17 @@ function aiMove(me){
 document.getElementById('startBlack').onclick=()=>{humanColor=PRETO; document.getElementById('startModal').style.display='none'; updateHUD(); draw();};
 document.getElementById('startWhite').onclick=()=>{humanColor=BRANCO; document.getElementById('startModal').style.display='none'; updateHUD(); draw(); setTimeout(aiStep,300);};
 
+canvas.addEventListener('click', e=>handlePointer(e.clientX,e.clientY));
+canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; handlePointer(t.clientX,t.clientY); e.preventDefault();},{passive:false});
+
 function handlePointer(clientX,clientY){
   if(humanColor==null || turn!==humanColor) return;
   const rect=canvas.getBoundingClientRect(); const x=clientX-rect.left, y=clientY-rect.top;
   for(let i=0;i<N;i++){
     if(board[i]!==VAZIO) continue;
-    const [q,r]=COORDS[i]; const [cx,cy]=[axialToPixel(q,r)[0]+originX, axialToPixel(q,r)[1]+originY]; // origin será aplicado no draw; aqui compensamos
-  }
-  // hit-test eficiente: recalcular center e polígono como no draw
-  for(let i=0;i<N;i++){
-    if(board[i]!==VAZIO) continue;
-    const [q,r]=COORDS[i]; const cx=HEX_R*(Math.sqrt(3)*(q + r/2)) + originX; const cy=HEX_R*(1.5*r) + originY;
-    const poly = hexPolygon(cx,cy);
+    const [q,r]=COORDS[i];
+    const cx=HEX_R*(Math.sqrt(3)*(q+r/2))+originX, cy=HEX_R*(1.5*r)+originY;
+    const poly=hexPolygon(cx,cy);
     if(pointInPoly(x,y,poly)){
       board[i]=selectedColor; pending.push([i,selectedColor]); draw(); updateHUD();
       const need=(turn===PRETO && !firstBlackDone)?1:2;
@@ -238,10 +251,6 @@ function handlePointer(clientX,clientY){
     }
   }
 }
-canvas.addEventListener('click', e=>handlePointer(e.clientX,e.clientY));
-canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; handlePointer(t.clientX,t.clientY); e.preventDefault();},{passive:false});
-
-function pointInPoly(x,y,poly){let inside=false; for(let i=0;i<poly.length;i++){const[x1,y1]=poly[i],[x2,y2]=poly[(i+1)%poly.length]; const hit=(y1>y)!==(y2>y) && x < (x2-x1)*(y-y1)/(y2-y1+1e-9)+x1; if(hit) inside=!inside;} return inside;}
 
 function aiStep(){
   if(humanColor==null) return;
@@ -258,9 +267,10 @@ function updateHUD(){
   turnLbl.textContent=COLOR_NAME[turn];
   needLbl.textContent=need;
   const sc=evaluate();
-  scoreBox.innerHTML=`<div><strong>Produto Pretas:</strong> ${sc.prod_black}</div>
-    <div><strong>Produto Brancas:</strong> ${sc.prod_white}</div>
-    <div class="muted">Peças P:${sc.black_pieces}  W:${sc.white_pieces}</div>`;
+  scoreBox.innerHTML=
+    `<div class="label">Produto Pretas:</div><div class="value" style="justify-content:flex-start">${sc.prod_black}</div>
+     <div class="label">Produto Brancas:</div><div class="value" style="justify-content:flex-start">${sc.prod_white}</div>
+     <div class="label muted">Peças:</div><div class="value muted" style="justify-content:flex-start">P:${sc.black_pieces}  |  W:${sc.white_pieces}</div>`;
 }
 
 function endGame(){
@@ -285,11 +295,11 @@ function draw(){
   ctx.lineWidth=2; ctx.strokeStyle=css('--line');
   for(let i=0;i<N;i++){
     const [q,r]=COORDS[i];
-    const cx = HEX_R*(Math.sqrt(3)*(q + r/2)) + originX;
-    const cy = HEX_R*(1.5*r) + originY;
-    const poly = hexPolygon(cx,cy);
+    const cx=HEX_R*(Math.sqrt(3)*(q+r/2))+originX;
+    const cy=HEX_R*(1.5*r)+originY;
+    const poly=hexPolygon(cx,cy);
     ctx.beginPath(); ctx.moveTo(poly[0][0],poly[0][1]); for(let k=1;k<6;k++) ctx.lineTo(poly[k][0],poly[k][1]); ctx.closePath();
-    ctx.fillStyle = css('--board'); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=css('--board'); ctx.fill(); ctx.stroke();
     const v=board[i];
     if(v!==VAZIO){ ctx.beginPath(); ctx.arc(cx,cy,HEX_R*0.6,0,Math.PI*2); ctx.fillStyle=PIECE_RGB[v]; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#000'; ctx.stroke(); }
   }
