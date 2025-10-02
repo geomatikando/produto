@@ -24,7 +24,7 @@
   .btn:hover{filter:brightness(0.97)}
   .pill{padding:3px 8px;border-radius:999px;border:1px solid #bbb;background:#fff;font-size:12px}
   .muted{color:#666}
-  .row{display:flex;gap:8px;align-items:center;margin:4px 0}
+  .row{display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap}
   footer{margin-top:auto;width:100%;display:flex;justify-content:center}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);
     display:none;align-items:center;justify-content:center;padding:24px}
@@ -32,6 +32,16 @@
     padding:20px;min-width:280px;max-width:420px;width:100%}
   .card h2{margin:0 0 12px}
   .center{display:flex;gap:10px;justify-content:center}
+
+  /* Botões pequenos para lado do texto */
+  .btn.small{
+    padding:4px 8px;
+    margin:0 4px;
+    font-size:13px;
+    width:auto;
+    border-radius:8px;
+  }
+  .row button{flex-shrink:0}
 
   /* Mobile: painel em baixo e canvas ocupa a área visível restante */
   @media (max-width:900px){
@@ -58,12 +68,14 @@
   <aside id="side">
     <h1>PRODUTO</h1>
     <div class="info">
-      <div class="row"><strong>Vez:</strong>&nbsp;<span id="turnLbl">—</span></div>
+      <div class="row">
+        <strong>Vez:</strong>&nbsp;<span id="turnLbl">—</span>
+        <button class="btn small" id="btnBlack">⚫ Preta</button>
+        <button class="btn small" id="btnWhite">⚪ Branca</button>
+      </div>
       <div class="row"><strong>Coloca:</strong>&nbsp;<span id="needLbl">—</span>&nbsp;<span class="muted">peça(s)</span></div>
       <div class="row"><strong>Cor selecionada:</strong> <span id="selLbl" class="pill">Preta</span></div>
     </div>
-    <button class="btn" id="btnBlack">Peça PRETA</button>
-    <button class="btn" id="btnWhite">Peça BRANCA</button>
     <button class="btn" id="btnUndo">Undo</button>
     <button class="btn" id="btnReset">Reiniciar</button>
     <div class="info" id="scoreBox" style="margin-top:12px"></div>
