@@ -3,12 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Produto — 1P vs IA / 2 Jogadores</title>
+<title>Produto — 1 Jogador / 2 Jogadores</title>
 <style>
   :root{
     --bg:#f7f7f7; --panel:#fafafa; --line:#333; --board:#e6e6e6;
-    /* altura do painel (mobile): mínimo 150px, preferido 26vh, máximo 200px */
-    --panel-h:clamp(150px,26vh,200px);
+    --panel-h:clamp(150px,26vh,200px); /* painel adaptativo no mobile */
   }
   html,body{height:100%;margin:0;background:var(--bg);
     font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;color:#222}
@@ -19,11 +18,9 @@
     display:flex;flex-direction:column;align-items:center;padding:16px}
   h1{margin:6px 0 10px;font-size:22px;letter-spacing:.4px}
 
-  /* painel em grid: label | valor (botões ficam à direita do texto) */
+  /* Painel em grelha: label | valor (botões de cor à direita) */
   .info-grid{
-    width:100%;
-    display:grid;
-    grid-template-columns:auto 1fr;
+    width:100%; display:grid; grid-template-columns:auto 1fr;
     column-gap:10px; row-gap:8px; align-items:center;
     font-size:14px; margin:10px 0 12px;
   }
@@ -46,14 +43,13 @@
   .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);
     padding:20px;min-width:280px;max-width:420px;width:100%}
   .card h2{margin:0 0 12px}
-  .center{display:flex;gap:10px;justify-content:center}
+  .center{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 
   /* Mobile: painel em baixo e canvas ocupa a área visível restante */
   @media (max-width:900px){
     .wrap{grid-template-columns:1fr}
     aside{
-      position:fixed;left:0;right:0;bottom:0;
-      height:var(--panel-h);
+      position:fixed;left:0;right:0;bottom:0;height:var(--panel-h);
       border-left:none;border-top:1px solid #ddd;
       padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
       background-clip:padding-box;
@@ -105,7 +101,7 @@
 <div class="modal" id="startModal">
   <div class="card">
     <h2>Escolhe o modo / lado</h2>
-    <div class="center" style="flex-wrap:wrap">
+    <div class="center">
       <button class="btn" id="startBlack">1 Jogador — Jogar Pretas</button>
       <button class="btn" id="startWhite">1 Jogador — Jogar Brancas</button>
       <button class="btn" id="startPvP">2 Jogadores</button>
@@ -115,30 +111,29 @@
 
 <script>
 (()=>{
-// ===== Fix altura viewport em iOS/Android
+/* ===== Altura real do viewport (iOS/Android) ===== */
 function setVH(){ document.documentElement.style.setProperty('--vh', window.innerHeight + 'px'); }
 setVH(); window.addEventListener('resize', setVH);
 
-// ===== Config e utilidades
-const SIZE=5; // lado do hexágono
-let HEX_R=26; // será recalculado para caber
+/* ===== Config & util ===== */
+const SIZE=5; let HEX_R=26;
 const PRETO=1, BRANCO=2, VAZIO=0;
 const COLOR_NAME={1:'Pretas',2:'Brancas'};
 const PIECE_RGB={1:'#222',2:'#f4f4f4'};
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
-// ===== Tabuleiro (axial, pointy-top)
+/* ===== Tabuleiro axial (pointy-top) ===== */
 function axialHexCoords(size){const r=size-1,out=[];for(let q=-r;q<=r;q++){const r1=Math.max(-r,-q-r),r2=Math.min(r,-q+r);for(let s=r1;s<=r2;s++)out.push([q,s])}return out}
 const COORDS=axialHexCoords(SIZE), N=COORDS.length;
 const INDEX=new Map(COORDS.map((c,i)=>[c.toString(),i]));
 const NEIGH_DELTAS=[[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
-const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],a=[];for(const[dq,dr] of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].toString()); if(j!==undefined) a.push(j)}return a});
+const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],a=[];for(const[dq,dr]of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].toString()); if(j!==undefined) a.push(j)}return a});
 
 function axialToPixel(q,r){ return [HEX_R*(Math.sqrt(3)*(q+r/2)), HEX_R*(1.5*r)] }
 function hexPolygon(cx,cy){const pts=[];for(let k=0;k<6;k++){const ang=(Math.PI/180)*(60*k+30);pts.push([cx+HEX_R*Math.cos(ang), cy+HEX_R*Math.sin(ang)])}return pts}
 function pointInPoly(x,y,poly){let inside=false; for(let i=0;i<poly.length;i++){const[x1,y1]=poly[i],[x2,y2]=poly[(i+1)%poly.length]; const hit=(y1>y)!==(y2>y) && x < (x2-x1)*(y-y1)/(y2-y1+1e-9)+x1; if(hit) inside=!inside;} return inside;}
 
-// ===== Canvas + ajuste responsivo
+/* ===== Canvas + ajuste responsivo ===== */
 const canvas=document.getElementById('board'), ctx=canvas.getContext('2d');
 let originX=0, originY=0;
 function fitCanvasAndRadius(){
@@ -149,14 +144,13 @@ function fitCanvasAndRadius(){
   canvas.style.width=w+'px'; canvas.style.height=h+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
-  // Extents em unidades (R=1)
   const centers1=COORDS.map(([q,r])=>[Math.sqrt(3)*(q+r/2), 1.5*r]);
   const xs=centers1.map(p=>p[0]), ys=centers1.map(p=>p[1]);
   const minx=Math.min(...xs)-1, maxx=Math.max(...xs)+1;
   const miny=Math.min(...ys)-1, maxy=Math.max(...ys)+1;
   const widthU=maxx-minx, heightU=maxy-miny;
 
-  const PAD=12; // margem em px
+  const PAD=12;
   const Rx=(w-2*PAD)/widthU, Ry=(h-2*PAD)/heightU;
   HEX_R=Math.max(6, Math.floor(Math.min(Rx,Ry)));
 
@@ -166,17 +160,15 @@ function fitCanvasAndRadius(){
 }
 window.addEventListener('resize', ()=>{fitCanvasAndRadius(); draw();});
 
-// ===== Estado do jogo
+/* ===== Estado do jogo ===== */
 let board=Array(N).fill(VAZIO), turn=PRETO, firstBlackDone=false;
 let selectedColor=PRETO, pending=[];
 
-// MODO DE JOGO
-// 'ai'  → humano vs IA (humanColor=PRETO|BRANCO)
-// 'pvp' → 2 jogadores no mesmo dispositivo
-let gameMode='ai';
-let humanColor=null; // válido apenas em 'ai'
+/* Modo de jogo */
+let gameMode='ai';        // 'ai' | 'pvp'
+let humanColor=null;      // usado só em 'ai'
 
-// ===== Histórico para UNDO
+/* ===== Histórico para UNDO ===== */
 let history=[];
 function pushHistory(){
   history.push({
@@ -197,7 +189,7 @@ function restoreState(s){
   draw(); updateHUD();
 }
 
-// ===== HUD
+/* ===== HUD ===== */
 const modeLbl=document.getElementById('modeLbl');
 const turnLbl=document.getElementById('turnLbl');
 const needLbl=document.getElementById('needLbl');
@@ -207,24 +199,18 @@ const scoreBox=document.getElementById('scoreBox');
 document.getElementById('chipBlack').onclick=()=>{selectedColor=PRETO; selLbl.textContent='Preta';};
 document.getElementById('chipWhite').onclick=()=>{selectedColor=BRANCO; selLbl.textContent='Branca';};
 document.getElementById('btnUndo').onclick=()=>{
-  if(pending.length){
-    const [i]=pending.pop();
-    board[i]=VAZIO;
-    draw(); updateHUD();
-  }else if(history.length){
-    const s=history.pop();
-    restoreState(s);
-  }
+  if(pending.length){ const [i]=pending.pop(); board[i]=VAZIO; draw(); updateHUD(); }
+  else if(history.length){ restoreState(history.pop()); }
 };
 document.getElementById('btnReset').onclick=resetGame;
 document.getElementById('btnQuit').onclick=()=>window.close();
 
-// ===== Pontuação
+/* ===== Pontuação ===== */
 function groupSizes(color){const seen=new Set(),sizes=[];for(let i=0;i<N;i++) if(board[i]===color && !seen.has(i)){let c=0;const st=[i];seen.add(i);while(st.length){const u=st.pop();c++;for(const v of NEIGH[u]) if(board[v]===color && !seen.has(v)){seen.add(v);st.push(v)}}sizes.push(c)}sizes.sort((a,b)=>b-a);return sizes}
 const prod2=a=>a.length>=2?a[0]*a[1]:0;
 function evaluate(){const sb=groupSizes(PRETO), sw=groupSizes(BRANCO); return {prod_black:prod2(sb), prod_white:prod2(sw), black_pieces:board.filter(v=>v===PRETO).length, white_pieces:board.filter(v=>v===BRANCO).length, diffFor(me){return me===PRETO? this.prod_black-this.prod_white : this.prod_white-this.prod_black}}}
 
-// ===== IA (com pares mistos)
+/* ===== IA ===== */
 const empties=()=>board.map((v,i)=>v===VAZIO?i:-1).filter(i=>i!==-1);
 function tryPlace(pl){const b=board.slice(), used=new Set();for(const[i,c] of pl){if(used.has(i)||b[i]!==VAZIO) return null; used.add(i); b[i]=c;} return b;}
 function evaluateBoard(b){const save=board; board=b; const sc=evaluate(); board=save; return sc;}
@@ -261,7 +247,7 @@ function aiMove(me){
   return best?best.mv:(e.length>1?[[e[0],me],[e[1],me]]:[[e[0],me]]);
 }
 
-// ===== Interação
+/* ===== Início / modo ===== */
 document.getElementById('startBlack').onclick=()=>{ gameMode='ai'; humanColor=PRETO; modeLbl.textContent='1 Jogador'; startGame(); };
 document.getElementById('startWhite').onclick=()=>{ gameMode='ai'; humanColor=BRANCO; modeLbl.textContent='1 Jogador'; startGame(true); };
 document.getElementById('startPvP').onclick=()=>{ gameMode='pvp'; humanColor=null; modeLbl.textContent='2 Jogadores'; startGame(); };
@@ -272,6 +258,7 @@ function startGame(aiStarts=false){
   if(aiStarts) setTimeout(aiStep, 300);
 }
 
+/* ===== Interação ===== */
 canvas.addEventListener('click', e=>handlePointer(e.clientX,e.clientY));
 canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; handlePointer(t.clientX,t.clientY); e.preventDefault();},{passive:false});
 
@@ -296,8 +283,16 @@ function handlePointer(clientX,clientY){
       if(pending.length>=need){
         pending.length=0;
         if(turn===PRETO && !firstBlackDone) firstBlackDone=true;
+
         turn=(turn===PRETO)?BRANCO:PRETO;
         draw(); updateHUD();
+
+        /* ✅ NOVO: se for 2 Jogadores e encheu o tabuleiro, anuncia vencedor */
+        if (gameMode==='pvp' && !board.some(v=>v===VAZIO)) {
+          endGame();
+          return;
+        }
+
         if(gameMode==='ai') setTimeout(aiStep,220);
       }
       break;
@@ -305,18 +300,21 @@ function handlePointer(clientX,clientY){
   }
 }
 
+/* ===== IA joga ===== */
 function aiStep(){
-  if(gameMode!=='ai') return;                     // não há IA no 2P
+  if(gameMode!=='ai') return;
   if(!board.some(v=>v===VAZIO)) return endGame();
   if(humanColor===turn) return;
 
-  pushHistory();                                   // snapshot antes da jogada da IA
+  pushHistory(); // snapshot antes da jogada da IA
   const mv=aiMove(turn); for(const [i,c] of mv) board[i]=c;
   if(turn===PRETO && !firstBlackDone) firstBlackDone=true;
   turn=(turn===PRETO)?BRANCO:PRETO;
-  draw(); updateHUD(); if(!board.some(v=>v===VAZIO)) endGame();
+  draw(); updateHUD();
+  if(!board.some(v=>v===VAZIO)) endGame();
 }
 
+/* ===== HUD / resultado ===== */
 function updateHUD(){
   const need=(turn===PRETO && !firstBlackDone)?1:2;
   turnLbl.textContent=COLOR_NAME[turn];
@@ -343,9 +341,9 @@ function resetGame(){
   draw(); updateHUD(); document.getElementById('startModal').style.display='flex';
 }
 
-// ===== Desenho
+/* ===== Desenho ===== */
 function draw(){
-  fitCanvasAndRadius(); // recalcula R e centra para caber
+  fitCanvasAndRadius();
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle = css('--bg'); ctx.fillRect(0,0,canvas.width,canvas.height);
 
@@ -362,7 +360,7 @@ function draw(){
   }
 }
 
-// inicialização
+/* Boot */
 document.getElementById('startModal').style.display='flex';
 draw();
 })();
