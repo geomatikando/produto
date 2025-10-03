@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Produto — versão responsiva</title>
+<title>Produto — 1P vs IA / 2 Jogadores</title>
 <style>
   :root{
     --bg:#f7f7f7; --panel:#fafafa; --line:#333; --board:#e6e6e6;
@@ -74,6 +74,9 @@
     <h1>PRODUTO</h1>
 
     <div class="info-grid">
+      <div class="label">Modo:</div>
+      <div class="value"><span id="modeLbl" class="pill">1 Jogador</span></div>
+
       <div class="label">Vez:</div>
       <div class="value">
         <span id="turnLbl">—</span>
@@ -101,10 +104,11 @@
 <!-- Modal início -->
 <div class="modal" id="startModal">
   <div class="card">
-    <h2>Escolhe o teu lado</h2>
-    <div class="center">
-      <button class="btn" id="startBlack">Jogar Pretas</button>
-      <button class="btn" id="startWhite">Jogar Brancas</button>
+    <h2>Escolhe o modo / lado</h2>
+    <div class="center" style="flex-wrap:wrap">
+      <button class="btn" id="startBlack">1 Jogador — Jogar Pretas</button>
+      <button class="btn" id="startWhite">1 Jogador — Jogar Brancas</button>
+      <button class="btn" id="startPvP">2 Jogadores</button>
     </div>
   </div>
 </div>
@@ -128,7 +132,7 @@ function axialHexCoords(size){const r=size-1,out=[];for(let q=-r;q<=r;q++){const
 const COORDS=axialHexCoords(SIZE), N=COORDS.length;
 const INDEX=new Map(COORDS.map((c,i)=>[c.toString(),i]));
 const NEIGH_DELTAS=[[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
-const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],a=[];for(const[dq,dr]of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].toString()); if(j!==undefined) a.push(j)}return a});
+const NEIGH=Array.from({length:N},(_,i)=>{const[q,r]=COORDS[i],a=[];for(const[dq,dr] of NEIGH_DELTAS){const j=INDEX.get([q+dq,r+dr].toString()); if(j!==undefined) a.push(j)}return a});
 
 function axialToPixel(q,r){ return [HEX_R*(Math.sqrt(3)*(q+r/2)), HEX_R*(1.5*r)] }
 function hexPolygon(cx,cy){const pts=[];for(let k=0;k<6;k++){const ang=(Math.PI/180)*(60*k+30);pts.push([cx+HEX_R*Math.cos(ang), cy+HEX_R*Math.sin(ang)])}return pts}
@@ -163,9 +167,16 @@ function fitCanvasAndRadius(){
 window.addEventListener('resize', ()=>{fitCanvasAndRadius(); draw();});
 
 // ===== Estado do jogo
-let board=Array(N).fill(VAZIO), turn=PRETO, firstBlackDone=false, humanColor=null, selectedColor=PRETO, pending=[];
+let board=Array(N).fill(VAZIO), turn=PRETO, firstBlackDone=false;
+let selectedColor=PRETO, pending=[];
 
-// ===== Histórico para UNDO (novo)
+// MODO DE JOGO
+// 'ai'  → humano vs IA (humanColor=PRETO|BRANCO)
+// 'pvp' → 2 jogadores no mesmo dispositivo
+let gameMode='ai';
+let humanColor=null; // válido apenas em 'ai'
+
+// ===== Histórico para UNDO
 let history=[];
 function pushHistory(){
   history.push({
@@ -173,20 +184,21 @@ function pushHistory(){
     turn,
     firstBlackDone,
     pending: pending.slice(),
-    selectedColor
+    selectedColor,
+    gameMode,
+    humanColor
   });
   if(history.length>200) history.shift();
 }
 function restoreState(s){
-  board = s.board.slice();
-  turn = s.turn;
-  firstBlackDone = s.firstBlackDone;
-  pending = s.pending.slice();
-  selectedColor = s.selectedColor;
+  board=s.board.slice(); turn=s.turn; firstBlackDone=s.firstBlackDone;
+  pending=s.pending.slice(); selectedColor=s.selectedColor;
+  gameMode=s.gameMode; humanColor=s.humanColor;
   draw(); updateHUD();
 }
 
 // ===== HUD
+const modeLbl=document.getElementById('modeLbl');
 const turnLbl=document.getElementById('turnLbl');
 const needLbl=document.getElementById('needLbl');
 const selLbl =document.getElementById('selLbl');
@@ -195,11 +207,11 @@ const scoreBox=document.getElementById('scoreBox');
 document.getElementById('chipBlack').onclick=()=>{selectedColor=PRETO; selLbl.textContent='Preta';};
 document.getElementById('chipWhite').onclick=()=>{selectedColor=BRANCO; selLbl.textContent='Branca';};
 document.getElementById('btnUndo').onclick=()=>{
-  if(pending.length){                 // desfaz a última peça do turno atual
+  if(pending.length){
     const [i]=pending.pop();
     board[i]=VAZIO;
     draw(); updateHUD();
-  }else if(history.length){           // reverte o último turno completo (humano ou IA)
+  }else if(history.length){
     const s=history.pop();
     restoreState(s);
   }
@@ -250,14 +262,25 @@ function aiMove(me){
 }
 
 // ===== Interação
-document.getElementById('startBlack').onclick=()=>{humanColor=PRETO; document.getElementById('startModal').style.display='none'; updateHUD(); draw();};
-document.getElementById('startWhite').onclick=()=>{humanColor=BRANCO; document.getElementById('startModal').style.display='none'; updateHUD(); draw(); setTimeout(aiStep,300);};
+document.getElementById('startBlack').onclick=()=>{ gameMode='ai'; humanColor=PRETO; modeLbl.textContent='1 Jogador'; startGame(); };
+document.getElementById('startWhite').onclick=()=>{ gameMode='ai'; humanColor=BRANCO; modeLbl.textContent='1 Jogador'; startGame(true); };
+document.getElementById('startPvP').onclick=()=>{ gameMode='pvp'; humanColor=null; modeLbl.textContent='2 Jogadores'; startGame(); };
+
+function startGame(aiStarts=false){
+  document.getElementById('startModal').style.display='none';
+  updateHUD(); draw();
+  if(aiStarts) setTimeout(aiStep, 300);
+}
 
 canvas.addEventListener('click', e=>handlePointer(e.clientX,e.clientY));
 canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; handlePointer(t.clientX,t.clientY); e.preventDefault();},{passive:false});
 
+function isHumanTurn(){
+  return gameMode==='pvp' || (gameMode==='ai' && humanColor===turn);
+}
+
 function handlePointer(clientX,clientY){
-  if(humanColor==null || turn!==humanColor) return;
+  if(!isHumanTurn()) return;
   const rect=canvas.getBoundingClientRect(); const x=clientX-rect.left, y=clientY-rect.top;
 
   for(let i=0;i<N;i++){
@@ -266,9 +289,7 @@ function handlePointer(clientX,clientY){
     const cx=HEX_R*(Math.sqrt(3)*(q+r/2))+originX, cy=HEX_R*(1.5*r)+originY;
     const poly=hexPolygon(cx,cy);
     if(pointInPoly(x,y,poly)){
-      // Se é a primeira peça deste turno, guarda snapshot para Undo de turno completo
-      if(pending.length===0) pushHistory();
-
+      if(pending.length===0) pushHistory();  // snapshot para Undo do turno
       board[i]=selectedColor; pending.push([i,selectedColor]); draw(); updateHUD();
 
       const need=(turn===PRETO && !firstBlackDone)?1:2;
@@ -276,7 +297,8 @@ function handlePointer(clientX,clientY){
         pending.length=0;
         if(turn===PRETO && !firstBlackDone) firstBlackDone=true;
         turn=(turn===PRETO)?BRANCO:PRETO;
-        setTimeout(aiStep,220);
+        draw(); updateHUD();
+        if(gameMode==='ai') setTimeout(aiStep,220);
       }
       break;
     }
@@ -284,13 +306,11 @@ function handlePointer(clientX,clientY){
 }
 
 function aiStep(){
-  if(humanColor==null) return;
+  if(gameMode!=='ai') return;                     // não há IA no 2P
   if(!board.some(v=>v===VAZIO)) return endGame();
-  if(turn!== (humanColor===PRETO?BRANCO:PRETO)) return;
+  if(humanColor===turn) return;
 
-  // Guarda snapshot ANTES da jogada da IA (Undo reverte o turno da IA)
-  pushHistory();
-
+  pushHistory();                                   // snapshot antes da jogada da IA
   const mv=aiMove(turn); for(const [i,c] of mv) board[i]=c;
   if(turn===PRETO && !firstBlackDone) firstBlackDone=true;
   turn=(turn===PRETO)?BRANCO:PRETO;
@@ -317,9 +337,10 @@ function endGame(){
 }
 
 function resetGame(){
-  board.fill(VAZIO); turn=PRETO; firstBlackDone=false; pending.length=0; selectedColor=PRETO; selLbl.textContent='Preta';
-  history.length=0;
-  draw(); updateHUD(); document.getElementById('startModal').style.display='flex'; humanColor=null;
+  board.fill(VAZIO); turn=PRETO; firstBlackDone=false; pending.length=0; selectedColor=PRETO; history.length=0;
+  modeLbl.textContent = (gameMode==='pvp'?'2 Jogadores':'1 Jogador');
+  selLbl.textContent='Preta';
+  draw(); updateHUD(); document.getElementById('startModal').style.display='flex';
 }
 
 // ===== Desenho
