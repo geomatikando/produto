@@ -331,7 +331,11 @@ function endGame(){
   let winner=null;
   if(sc.prod_black!==sc.prod_white) winner=sc.prod_black>sc.prod_white?PRETO:BRANCO;
   else if(sc.black_pieces!==sc.white_pieces) winner=sc.black_pieces<sc.white_pieces?PRETO:BRANCO;
+
   alert(`Produto Pretas: ${sc.prod_black}\nProduto Brancas: ${sc.prod_white}\nPeças P:${sc.black_pieces}  W:${sc.white_pieces}\n\n${winner?`Vence: ${COLOR_NAME[winner]}`:'Empate absoluto!'}`);
+
+  // 👇 volta ao menu inicial
+  resetGame();
 }
 
 function resetGame(){
